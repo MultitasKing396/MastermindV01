@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Mastermind NFC Mini Game</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    touch-action: manipulation;
+    overscroll-behavior: none;
+    margin: 0;
+    padding: 0;
+    background: #111;
+    color: #fff;
+    font-family: sans-serif;
+    text-align: center;
+    user-select: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+  .head { font-size: 13px; letter-spacing: 1px; margin-bottom: 6px; color: #ccc; }
+  .head b { color: #00e5ff; font-size: 15px; }
+  .bar { width: 292px; margin: 0 auto 8px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .reset { height: 32px; padding: 0 10px; font-size: 12px; background: #333; color: #fff; border: 0; border-radius: 6px; cursor: pointer; }
+  .reset:active { background: #555; }
+  .mode-btn { height: 32px; padding: 0 9px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; background: #222; color: #00e5ff; border: 1px solid #00e5ff; border-radius: 6px; cursor: pointer; }
+  .mode-btn.simple { color: #00ff00; border-color: #00ff00; }
+  .mode-btn:active { background: #333; }
+  .secret-bar { display: flex; gap: 4px; align-items: center; }
+  .s-dot { width: 20px; height: 20px; border-radius: 50%; background: #222; border: 1px solid #555; display: flex; justify-content: center; align-items: center; font-size: 11px; color: #888; font-weight: bold; }
+  .wrap { position: relative; width: 292px; height: 356px; margin: 0 auto 8px; background: #000; border: 2px solid #555; padding: 5px; display: flex; flex-direction: column-reverse; justify-content: space-between; }
+  .row { display: flex; justify-content: space-between; align-items: center; height: 31px; padding: 0 8px; border-radius: 5px; background: #141414; border: 1px solid #222; }
+  .row.active { border-color: #00e5ff; background: #1a2226; }
+  .pegs { display: flex; gap: 10px; }
+  .peg { width: 21px; height: 21px; border-radius: 50%; background: #222; border: 1px solid #444; }
+  .hints { display: grid; grid-template-columns: repeat(2, 9px); grid-template-rows: repeat(2, 9px); gap: 3px; }
+  .h-dot { width: 9px; height: 9px; border-radius: 50%; background: #2a2a2a; }
+  .h-dot.exact { background: #00ff00; }
+  .h-dot.near { background: #ffee00; }
+  .ov {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.92);
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 50;
+    cursor: pointer;
+    padding: 12px;
+  }
+  .ov.show { display: flex; }
+  .ov h2 { margin: 0 0 8px; font-size: 22px; letter-spacing: 1px; }
+  .ov p { margin: 4px 0; font-size: 14px; color: #fff; }
+  .ov .sub { margin-top: 14px; font-size: 11px; color: #777; }
+  .controls { width: 292px; display: flex; flex-direction: column; gap: 7px; }
+  .colors { display: flex; justify-content: space-between; }
+  .c-btn { width: 40px; height: 40px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.25); cursor: pointer; }
+  .c-btn:active { transform: scale(0.92); }
+  .actions { display: flex; gap: 8px; }
+  .act-btn { flex: 1; height: 36px; font-size: 14px; font-weight: bold; border-radius: 8px; border: 1px solid #444; background: #222; color: #fff; cursor: pointer; }
+  .act-btn:active { background: #444; }
+  .act-btn.ok { border-color: #00ff00; color: #00ff00; }
+  .act-btn.del { border-color: #ff3b30; color: #ff3b30; }
+  .info { font-size: 11px; color: #888; margin-top: 7px; }
+</style>
+</head>
+<body>
+  <div class="head">MASTERMIND NFC MINI GAME<br>VERSUCH <b id="turn">1</b> / 10</div>
+  <div class="bar">
+    <button type="button" class="reset" onclick="init()">Neu starten</button>
+    <button type="button" id="modeBtn" class="mode-btn" onclick="toggleMode()">DOPPELT</button>
+    <div class="secret-bar" id="secBar">
+      <div class="s-dot">?</div>
+      <div class="s-dot">?</div>
+      <div class="s-dot">?</div>
+      <div class="s-dot">?</div>
+    </div>
+  </div>
+  <div class="wrap">
+    <div id="board"></div>
+    <div id="ov" class="ov" onclick="init()">
+      <h2 id="ovT">GEKNACKT!</h2>
+      <p id="ov1"></p>
+      <p id="ov2"></p>
+      <div class="sub">Tippen für neuen Code</div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="colors" id="pal"></div>
+    <div class="actions">
+      <button type="button" class="act-btn del" onclick="back()">⌫ Löschen</button>
+      <button type="button" class="act-btn ok" onclick="check()">✓ Prüfen</button>
+    </div>
+  </div>
+  <div class="info">by Alp</div>
+
+<script>
+const boardEl = document.getElementById("board");
+const palEl = document.getElementById("pal");
+const turnEl = document.getElementById("turn");
+const secBarEl = document.getElementById("secBar");
+const modeBtnEl = document.getElementById("modeBtn");
+const ovEl = document.getElementById("ov");
+const ovT = document.getElementById("ovT");
+const ov1 = document.getElementById("ov1");
+const ov2 = document.getElementById("ov2");
+
+let secret = "";
+let guesses = new Array();
+let hints = new Array();
+let current = "";
+let over = false;
+let simpleMode = false;
+
+function getColor(idx) {
+  if (idx === 0) return "#ff3b30";
+  if (idx === 1) return "#00ff00";
+  if (idx === 2) return "#3388ff";
+  if (idx === 3) return "#ffee00";
+  if (idx === 4) return "#cc33ff";
+  return "#ff7700";
+}
+
+function getBestKey() {
+  return simpleMode ? "mastermind_nfc_best_simple" : "mastermind_nfc_best_normal";
+}
+
+function buildPalette() {
+  palEl.innerHTML = "";
+  for (let i = 0; i < 6; i++) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "c-btn";
+    btn.style.background = getColor(i);
+    btn.setAttribute("onclick", "pick(" + i + ")");
+    palEl.appendChild(btn);
+  }
+}
+
+function renderSecret(reveal) {
+  secBarEl.innerHTML = "";
+  for (let i = 0; i < 4; i++) {
+    const d = document.createElement("div");
+    d.className = "s-dot";
+    if (reveal) {
+      d.style.background = getColor(Number(secret.charAt(i)));
+      d.style.borderColor = "#fff";
+    } else {
+      d.textContent = "?";
+    }
+    secBarEl.appendChild(d);
+  }
+}
+
+function renderBoard() {
+  boardEl.innerHTML = "";
+  boardEl.style.display = "flex";
+  boardEl.style.flexDirection = "column-reverse";
+  boardEl.style.gap = "4px";
+  for (let r = 0; r < 10; r++) {
+    const row = document.createElement("div");
+    const isActive = !over && r === guesses.length;
+    row.className = "row" + (isActive ? " active" : "");
+
+    const pegs = document.createElement("div");
+    pegs.className = "pegs";
+    const rowStr = r < guesses.length ? guesses.slice(r, r + 1).pop() : (isActive ? current : "");
+    for (let c = 0; c < 4; c++) {
+      const peg = document.createElement("div");
+      peg.className = "peg";
+      if (c < rowStr.length) {
+        peg.style.background = getColor(Number(rowStr.charAt(c)));
+        peg.style.borderColor = "#fff";
+      }
+      pegs.appendChild(peg);
+    }
+
+    const hintBox = document.createElement("div");
+    hintBox.className = "hints";
+    const hStr = r < hints.length ? hints.slice(r, r + 1).pop() : "0000";
+    for (let h = 0; h < 4; h++) {
+      const hd = document.createElement("div");
+      const code = hStr.charAt(h);
+      hd.className = "h-dot" + (code === "2" ? " exact" : (code === "1" ? " near" : ""));
+      hintBox.appendChild(hd);
+    }
+
+    row.appendChild(pegs);
+    row.appendChild(hintBox);
+    boardEl.appendChild(row);
+  }
+}
+
+function pick(idx) {
+  if (over || current.length >= 4) return;
+  current += String(idx);
+  renderBoard();
+}
+
+function back() {
+  if (over || current.length === 0) return;
+  current = current.slice(0, current.length - 1);
+  renderBoard();
+}
+
+function check() {
+  if (over || current.length < 4) return;
+  let exact = 0;
+  let near = 0;
+  let sUsed = "";
+  let gUsed = "";
+
+  for (let i = 0; i < 4; i++) {
+    if (current.charAt(i) === secret.charAt(i)) {
+      exact++;
+      sUsed += "1";
+      gUsed += "1";
+    } else {
+      sUsed += "0";
+      gUsed += "0";
+    }
+  }
+
+  for (let i = 0; i < 4; i++) {
+    if (gUsed.charAt(i) === "1") continue;
+    for (let j = 0; j < 4; j++) {
+      if (sUsed.charAt(j) === "0" && current.charAt(i) === secret.charAt(j)) {
+        near++;
+        sUsed = sUsed.slice(0, j) + "1" + sUsed.slice(j + 1);
+        break;
+      }
+    }
+  }
+
+  let hStr = "2".repeat(exact) + "1".repeat(near);
+  while (hStr.length < 4) hStr += "0";
+
+  guesses.push(current);
+  hints.push(hStr);
+  current = "";
+
+  const key = getBestKey();
+  let best = Number(localStorage.getItem(key)) || 0;
+
+  if (exact === 4) {
+    over = true;
+    renderSecret(true);
+    renderBoard();
+    const tries = guesses.length;
+    if (best === 0 || tries < best) {
+      best = tries;
+      localStorage.setItem(key, best);
+    }
+    ovT.textContent = "CODE GEKNACKT!";
+    ovT.style.color = "#00ff00";
+    ov1.textContent = "Benötigte Versuche: " + tries + " / 10";
+    ov2.textContent = "Rekord (" + (simpleMode ? "1× Farbe" : "Doppelt") + "): " + best + (best === 1 ? " Versuch" : " Versuche");
+    ovEl.classList.add("show");
+    return;
+  }
+
+  if (guesses.length >= 10) {
+    over = true;
+    renderSecret(true);
+    renderBoard();
+    ovT.textContent = "NICHT GEKNACKT";
+    ovT.style.color = "#ff3b30";
+    ov1.textContent = "Oben siehst du den geheimen Code";
+    ov2.textContent = best > 0 ? "Dein Rekord: " + best + (best === 1 ? " Versuch" : " Versuche") : "";
+    ovEl.classList.add("show");
+    return;
+  }
+
+  turnEl.textContent = guesses.length + 1;
+  renderBoard();
+}
+
+function toggleMode() {
+  simpleMode = !simpleMode;
+  if (simpleMode) {
+    modeBtnEl.textContent = "1× FARBE";
+    modeBtnEl.classList.add("simple");
+  } else {
